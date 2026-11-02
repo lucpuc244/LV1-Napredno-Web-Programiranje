@@ -13,7 +13,14 @@ class DiplomskiRadovi implements iRadovi {
     private $pdo;
     private $radovi = [];
 
-    public function __construct() {
+    // Konstruktor - povezivanje s MySQL bazom
+    public function __construct(?PDO $pdo = null) {
+
+        if ($pdo !== null) {
+            $this->pdo = $pdo;
+            return;
+        }
+
         $this->pdo = new PDO(
             "mysql:host=localhost;dbname=radovi;charset=utf8mb4",
             "root",
@@ -26,7 +33,7 @@ class DiplomskiRadovi implements iRadovi {
         );
     }
 
-    // Dohvat HTML-a pomoću cURL-a
+    // Dohvat HTML sadržaja pomoću cURL-a
     private function dohvatiHTML($url) {
 
         $ch = curl_init($url);
@@ -46,26 +53,30 @@ class DiplomskiRadovi implements iRadovi {
         }
 
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
         curl_close($ch);
 
         return $status === 200 ? $html : false;
     }
 
-    // Pretvaranje HTML-a u DOMXPath
+    // Pretvaranje HTML sadržaja u DOMXPath
     private function napraviXPath($html) {
 
         $dom = new DOMDocument();
 
         libxml_use_internal_errors(true);
+
         $dom->loadHTML(
             '<?xml encoding="UTF-8">' . $html
         );
+
         libxml_clear_errors();
 
         return new DOMXPath($dom);
     }
 
     // ZADATAK 1 - CREATE
+    // Dohvacanje radova sa stranica 2 do 6
     public function create() {
 
         $this->radovi = [];
@@ -77,20 +88,20 @@ class DiplomskiRadovi implements iRadovi {
             $html = $this->dohvatiHTML($url);
 
             if (!$html) {
-                echo "Neuspješan dohvat stranice $i<br>";
+                echo "Neuspjesan dohvat stranice $i<br>";
                 continue;
             }
 
             $xpath = $this->napraviXPath($html);
 
-            // Pronalazak članaka
+            // Pronalazak svih clanaka
             $clanci = $xpath->query(
                 "//article[contains(@class, 'post')]"
             );
 
             foreach ($clanci as $clanak) {
 
-                // Naslov i poveznica rada
+                // Dohvat naslova i poveznice
                 $naslovNode = $xpath->query(
                     ".//h2[contains(@class, 'entry-title')]/a",
                     $clanak
@@ -101,9 +112,10 @@ class DiplomskiRadovi implements iRadovi {
                 }
 
                 $naziv = trim($naslovNode->textContent);
+
                 $link = $naslovNode->getAttribute("href");
 
-                // Pronalazak slike s OIB-om
+                // Dohvat slike iz koje se izdvaja OIB
                 $slikaNode = $xpath->query(
                     ".//img",
                     $clanak
@@ -116,7 +128,6 @@ class DiplomskiRadovi implements iRadovi {
                     $src = $slikaNode->getAttribute("src");
 
                     // OIB je 11-znamenkasti broj
-                    // u nazivu slike
                     if (preg_match(
                         '/(?:^|\/)(\d{11})(?:[-.])/i',
                         $src,
@@ -126,7 +137,7 @@ class DiplomskiRadovi implements iRadovi {
                     }
                 }
 
-                // Dohvat teksta rada s njegove stranice
+                // Dohvat teksta s poveznice rada
                 $tekst = "";
 
                 $htmlRada = $this->dohvatiHTML($link);
@@ -142,12 +153,14 @@ class DiplomskiRadovi implements iRadovi {
                     )->item(0);
 
                     if (!$tekstNode) {
+
                         $tekstNode = $xpathRada->query(
                             "//div[contains(@class, 'post-content')]"
                         )->item(0);
                     }
 
                     if ($tekstNode) {
+
                         $tekst = trim(
                             preg_replace(
                                 '/\s+/u',
@@ -158,23 +171,26 @@ class DiplomskiRadovi implements iRadovi {
                     }
                 }
 
-                // Stvaranje objekta
-                $rad = new stdClass();
+                // Stvaranje objekta klase DiplomskiRadovi
+                $rad = new DiplomskiRadovi($this->pdo);
 
+                // Spremanje podataka u objekt
                 $rad->naziv_rada = $naziv;
                 $rad->tekst_rada = $tekst;
                 $rad->link_rada = $link;
                 $rad->oib_tvrtke = $oib;
 
+                // Dodavanje objekta u polje
                 $this->radovi[] = $rad;
             }
         }
 
-        echo "Dohvaćeno radova: "
+        echo "Dohvaceno radova: "
             . count($this->radovi) . "<br>";
     }
 
     // ZADATAK 2 - SAVE
+    // Spremanje radova u MySQL bazu
     public function save() {
 
         $sql = "INSERT INTO diplomski_radovi
@@ -202,6 +218,7 @@ class DiplomskiRadovi implements iRadovi {
     }
 
     // ZADATAK 2 - READ
+    // Citanje svih radova iz MySQL baze
     public function read() {
 
         $stmt = $this->pdo->query(
